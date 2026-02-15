@@ -164,16 +164,26 @@ class ResumeMemory:
 
 
 class CandidateMemory:
-    """Manages evaluation results."""
+    """
+    Manages evaluation results with proper ranking and caching.
+    
+    Features:
+    - Efficient ranking with caching
+    - Prevents duplicate rankings
+    - Tracks ranking state
+    """
     
     def __init__(self):
         self._evaluations: Dict[str, CandidateEvaluation] = {}
         self._ranked_list: List[str] = []
+        self._is_ranked: bool = False  # Track if ranked (BUG FIX #4)
         logger.debug("CandidateMemory initialized")
     
     def add_evaluation(self, evaluation: CandidateEvaluation) -> None:
         """
         Add evaluation.
+        
+        Invalidates ranking when new evaluation added.
         
         Args:
             evaluation: CandidateEvaluation object
@@ -183,7 +193,11 @@ class CandidateMemory:
         """
         if not isinstance(evaluation, CandidateEvaluation):
             raise TypeError("evaluation must be CandidateEvaluation instance")
+        
         self._evaluations[evaluation.resume_id] = evaluation
+        
+        # Adding new evaluation invalidates ranking (BUG FIX #4)
+        self._is_ranked = False
     
     def get_evaluation(self, resume_id: str) -> Optional[CandidateEvaluation]:
         """Get evaluation by resume ID."""
@@ -197,18 +211,38 @@ class CandidateMemory:
         """
         Sort candidates by score (highest first).
         
+        Uses caching to avoid re-ranking if already ranked.
+        Call clear_ranking() to force re-ranking.
+        
         Returns:
             List of ranked CandidateEvaluation objects
         """
+        # If already ranked, return cached result (BUG FIX #4)
+        if self._is_ranked and self._ranked_list:
+            logger.debug("Using cached ranking")
+            return [
+                self._evaluations[rid] 
+                for rid in self._ranked_list 
+                if rid in self._evaluations
+            ]
+        
+        # Sort by score
         sorted_evals = sorted(
             self._evaluations.values(),
             key=lambda x: x.scores.final_score,
             reverse=True
         )
         
+        # BUG FIX #1: Clear _ranked_list before adding new ranks
+        self._ranked_list.clear()
+        
+        # Assign ranks and track order
         for rank, evaluation in enumerate(sorted_evals, start=1):
             evaluation.rank = rank
             self._ranked_list.append(evaluation.resume_id)
+        
+        # Mark as ranked
+        self._is_ranked = True
         
         logger.info(f"Ranked {len(sorted_evals)} candidates")
         return sorted_evals
@@ -216,6 +250,9 @@ class CandidateMemory:
     def get_top_k(self, k: int) -> List[CandidateEvaluation]:
         """
         Get top K candidates.
+        
+        Uses pre-ranked list if available for efficiency.
+        Otherwise sorts dynamically.
         
         Args:
             k: Number of top candidates to return
@@ -229,6 +266,17 @@ class CandidateMemory:
         if k <= 0:
             raise ValueError("k must be greater than 0")
         
+        # BUG FIX #5: Use pre-ranked list if available
+        if self._is_ranked and self._ranked_list:
+            logger.debug(f"Getting top {k} from pre-ranked list")
+            return [
+                self._evaluations[rid] 
+                for rid in self._ranked_list[:k]
+                if rid in self._evaluations
+            ]
+        
+        # Fallback: sort if not ranked yet
+        logger.debug(f"Re-sorting for top {k}")
         sorted_evals = sorted(
             self._evaluations.values(),
             key=lambda x: x.scores.final_score,
@@ -236,14 +284,57 @@ class CandidateMemory:
         )
         return sorted_evals[:k]
     
+    def get_ranked_ids(self) -> List[str]:
+        """
+        Get ranked candidate IDs in order.
+        
+        BUG FIX #3: This method now actually provides value!
+        
+        Returns:
+            List of ranked resume IDs (highest to lowest score)
+        
+        Raises:
+            ValueError: If not ranked yet
+        """
+        if not self._is_ranked or not self._ranked_list:
+            raise ValueError("Candidates not ranked yet. Call rank_candidates() first.")
+        
+        return self._ranked_list.copy()
+    
+    def is_ranked(self) -> bool:
+        """
+        Check if candidates have been ranked.
+        
+        Returns:
+            True if rank_candidates() was called and no new evaluations added
+        """
+        return self._is_ranked
+    
+    def clear_ranking(self) -> None:
+        """
+        Clear ranking to force re-ranking.
+        
+        Use when scores change and need new ranking.
+        Also clears rank from all evaluation objects.
+        """
+        self._ranked_list.clear()
+        self._is_ranked = False
+        
+        # Clear rank from all evaluations (BUG FIX #2: prevents stale ranks)
+        for evaluation in self._evaluations.values():
+            evaluation.rank = None
+        
+        logger.debug("Ranking cleared")
+    
     def count(self) -> int:
         """Total number of evaluations."""
         return len(self._evaluations)
     
     def clear(self) -> None:
-        """Clear all evaluations."""
+        """Clear all evaluations and ranking."""
         self._evaluations.clear()
         self._ranked_list.clear()
+        self._is_ranked = False
         logger.debug("CandidateMemory cleared")
 
 
