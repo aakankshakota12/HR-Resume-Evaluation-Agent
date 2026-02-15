@@ -7,6 +7,19 @@ class EmbeddingModel:
         print(f"Loading embedding model: {model_name}...")
         self.model = SentenceTransformer(model_name)
 
+    def get_embedding_dimension(self):
+        """
+        Returns embedding dimension for the loaded model.
+        """
+        if hasattr(self.model, "get_sentence_embedding_dimension"):
+            dim = self.model.get_sentence_embedding_dimension()
+            if dim:
+                return int(dim)
+
+        # Fallback for model wrappers without explicit dimension method.
+        sample = self.model.encode(["dimension probe"], convert_to_numpy=True)
+        return int(sample.shape[1])
+
     def get_embeddings(self, texts):
         """
         Converts text to normalized vectors (required for Cosine Similarity).

@@ -4,12 +4,25 @@ import pickle
 import os
 
 class ResumeIndex:
-    def __init__(self, dimension=384):
-        self.dimension = dimension
+    def __init__(self, dimension):
+        self.dimension = int(dimension)
+        if self.dimension <= 0:
+            raise ValueError(f"Invalid embedding dimension: {self.dimension}")
+
         # FIX: Use Inner Product (IP) instead of L2. 
         # IP + Normalized Vectors = Cosine Similarity
-        self.index = faiss.IndexFlatIP(dimension) 
+        self.index = faiss.IndexFlatIP(self.dimension) 
         self.metadata_map = {} 
+
+    def _validate_vector_dim(self, vectors):
+        if vectors is None or getattr(vectors, "ndim", None) != 2:
+            raise ValueError("Vectors must be a 2D array shaped [n, embedding_dim].")
+
+        vector_dim = int(vectors.shape[1])
+        if vector_dim != self.dimension:
+            raise ValueError(
+                f"Embedding dimension mismatch: index expects {self.dimension}, got {vector_dim}."
+            )
 
     def _compact_metadata(self, data):
         """
@@ -28,7 +41,8 @@ class ResumeIndex:
     def add_resumes(self, embeddings, resumes_data):
         if len(embeddings) != len(resumes_data):
             raise ValueError("Number of embeddings must match number of resumes.")
-        
+        self._validate_vector_dim(embeddings)
+
         self.index.add(embeddings)
         
         start_id = self.index.ntotal - len(embeddings)
@@ -38,6 +52,8 @@ class ResumeIndex:
         print(f"Added {len(embeddings)} documents to index. Total: {self.index.ntotal}")
 
     def search(self, query_vector, k=5):
+        self._validate_vector_dim(query_vector)
+
         # D is score (Cosine Similarity), I is indices
         D, I = self.index.search(query_vector, k)
         
@@ -65,6 +81,7 @@ class ResumeIndex:
         
         if os.path.exists(index_path) and os.path.exists(meta_path):
             self.index = faiss.read_index(index_path)
+            self.dimension = int(self.index.d)
             with open(meta_path, "rb") as f:
                 loaded = pickle.load(f)
 

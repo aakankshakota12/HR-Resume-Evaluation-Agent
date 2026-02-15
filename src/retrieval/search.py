@@ -5,10 +5,17 @@ from .faiss_index import ResumeIndex
 
 # Initialize components
 embedder = EmbeddingModel()
-vector_db = ResumeIndex()
+EMBEDDING_DIMENSION = embedder.get_embedding_dimension()
+vector_db = ResumeIndex(dimension=EMBEDDING_DIMENSION)
 
 # FIX: Try to load existing index immediately
-vector_db.load_index()
+index_loaded = vector_db.load_index()
+if index_loaded and vector_db.dimension != EMBEDDING_DIMENSION:
+    raise RuntimeError(
+        "Loaded index dimension does not match current embedding model. "
+        f"Model dim={EMBEDDING_DIMENSION}, index dim={vector_db.dimension}. "
+        "Rebuild or replace vector_store/index.faiss."
+    )
 
 def ingest_resumes(resume_folder_path):
     """
