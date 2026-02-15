@@ -2,7 +2,6 @@
 import faiss
 import pickle
 import os
-import numpy as np
 
 class ResumeIndex:
     def __init__(self, dimension=384):
@@ -12,6 +11,20 @@ class ResumeIndex:
         self.index = faiss.IndexFlatIP(dimension) 
         self.metadata_map = {} 
 
+    def _compact_metadata(self, data):
+        """
+        Keep only lightweight fields in memory/index metadata.
+        """
+        metadata = data.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+
+        return {
+            "id": data.get("id"),
+            "filename": data.get("filename"),
+            "metadata": metadata,
+        }
+
     def add_resumes(self, embeddings, resumes_data):
         if len(embeddings) != len(resumes_data):
             raise ValueError("Number of embeddings must match number of resumes.")
@@ -20,7 +33,7 @@ class ResumeIndex:
         
         start_id = self.index.ntotal - len(embeddings)
         for i, data in enumerate(resumes_data):
-            self.metadata_map[start_id + i] = data
+            self.metadata_map[start_id + i] = self._compact_metadata(data)
         
         print(f"Added {len(embeddings)} documents to index. Total: {self.index.ntotal}")
 
@@ -53,7 +66,12 @@ class ResumeIndex:
         if os.path.exists(index_path) and os.path.exists(meta_path):
             self.index = faiss.read_index(index_path)
             with open(meta_path, "rb") as f:
-                self.metadata_map = pickle.load(f)
+                loaded = pickle.load(f)
+
+            # Compact old metadata payloads from previous runs.
+            self.metadata_map = {
+                key: self._compact_metadata(value) for key, value in loaded.items()
+            }
             print("Index loaded from disk.")
             return True
         else:

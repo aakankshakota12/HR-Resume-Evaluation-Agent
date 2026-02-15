@@ -12,9 +12,11 @@ class EmbeddingModel:
         Converts text to normalized vectors (required for Cosine Similarity).
         """
         embeddings = self.model.encode(texts, convert_to_numpy=True)
-        
-        # FIX: Normalize embeddings for Cosine Similarity
-        embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+
+        # Safe normalization: avoid division-by-zero for degenerate vectors.
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        embeddings = embeddings / norms
         
         return embeddings.astype('float32')
     
@@ -23,8 +25,10 @@ class EmbeddingModel:
         Converts query to normalized vector.
         """
         embedding = self.model.encode([query], convert_to_numpy=True)
-        
-        # FIX: Normalize query too
-        embedding = embedding / np.linalg.norm(embedding, axis=1, keepdims=True)
+
+        # Same zero-safe normalization for query embedding.
+        norms = np.linalg.norm(embedding, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        embedding = embedding / norms
         
         return embedding.astype('float32')

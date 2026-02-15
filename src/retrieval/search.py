@@ -2,7 +2,6 @@
 from .resume_parser import load_resumes
 from .embeddings import EmbeddingModel
 from .faiss_index import ResumeIndex
-import os
 
 # Initialize components
 embedder = EmbeddingModel()
@@ -20,15 +19,31 @@ def ingest_resumes(resume_folder_path):
         print("No resumes found to ingest.")
         return
 
-    # Check for duplicates (simple check based on ID)
-    # (Optional: In production you would filter out IDs that already exist in metadata_map)
-    
-    texts = [item['text'] for item in raw_data]
+    # Prevent duplicate indexing across reruns and inside the same batch.
+    existing_ids = {
+        data.get("id") for data in vector_db.metadata_map.values() if data.get("id")
+    }
+    new_data = []
+    seen_in_batch = set()
+    for item in raw_data:
+        item_id = item.get("id")
+        if not item_id:
+            continue
+        if item_id in existing_ids or item_id in seen_in_batch:
+            continue
+        new_data.append(item)
+        seen_in_batch.add(item_id)
+
+    if not new_data:
+        print("No new resumes to add.")
+        return
+
+    texts = [item["text"] for item in new_data]
     
     print("Generating embeddings...")
     vectors = embedder.get_embeddings(texts)
 
-    vector_db.add_resumes(vectors, raw_data)
+    vector_db.add_resumes(vectors, new_data)
     
     # FIX: Save index immediately after adding
     vector_db.save_index()
